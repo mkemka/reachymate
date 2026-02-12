@@ -538,8 +538,13 @@ class LocalStream:
                 conn = self.handler.connection
                 if conn is None:
                     raise RuntimeError("no_connection")
-                # Save current instructions so we can restore them later
-                await conn.session.update(session={"instructions": patient_prompt})
+                from reachy_mini_conversation_app.prompts import get_session_voice
+                voice = get_session_voice()
+                await conn.session.update(session={
+                    "type": "realtime",
+                    "instructions": patient_prompt,
+                    "audio": {"output": {"voice": voice}},
+                })
 
             try:
                 fut = asyncio.run_coroutine_threadsafe(_apply_doctor_mode(), loop)
@@ -591,8 +596,14 @@ class LocalStream:
                     conn = self.handler.connection
                     if conn is None:
                         return
-                    # Restore default instructions by setting to empty (handler uses its default)
-                    await conn.session.update(session={"instructions": ""})
+                    from reachy_mini_conversation_app.prompts import get_session_instructions, get_session_voice
+                    instructions = get_session_instructions()
+                    voice = get_session_voice()
+                    await conn.session.update(session={
+                        "type": "realtime",
+                        "instructions": instructions,
+                        "audio": {"output": {"voice": voice}},
+                    })
 
                 try:
                     fut = asyncio.run_coroutine_threadsafe(_restore(), loop)
