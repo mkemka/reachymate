@@ -34,60 +34,39 @@ The app follows a layered architecture connecting the user, AI services, and rob
 ## Installation
 
 > [!IMPORTANT]
-> Before using this app, you need to install [Reachy Mini's SDK](https://github.com/pollen-robotics/reachy_mini/).<br>
-> Windows support is currently experimental and has not been extensively tested. Use with caution.
+> Requires Python 3.12 and [uv](https://docs.astral.sh/uv/). Windows support is experimental.
 
-### Using uv
-You can set up the project quickly using [uv](https://docs.astral.sh/uv/):
+### Quickstart
 
 ```bash
-uv venv --python 3.12.1  # Create a virtual environment with Python 3.12.1
+# 1. Create a virtual environment
+uv venv --python 3.12.1
 source .venv/bin/activate
-uv sync
+
+# 2. Install the Reachy Mini daemon (SDK + app server)
+uv pip install reachy-mini
+
+# 3. Clone and install this repo in editable mode
+git clone https://github.com/mkemka/reachymate.git
+cd reachymate
+uv pip install -e .
+
+# 4. Start the Reachy Mini daemon
+reachy-mini
 ```
 
-> [!NOTE]
-> To reproduce the exact dependency set from this repo's `uv.lock`, run `uv sync` with `--locked` (or `--frozen`). This ensures `uv` installs directly from the lockfile without re-resolving or updating any versions.
+Once the daemon is running, open http://127.0.0.1:7860/ to access the settings dashboard. Enter your OpenAI API key on first launch -- it will be saved for subsequent runs.
 
-To include optional dependencies:
-```
-uv sync --extra reachy_mini_wireless # For wireless Reachy Mini with GStreamer support
-uv sync --extra local_vision         # For local PyTorch/Transformers vision
-uv sync --extra yolo_vision          # For YOLO-based vision
-uv sync --extra mediapipe_vision     # For MediaPipe-based vision
-uv sync --extra all_vision           # For all vision features
-```
-
-You can combine extras or include dev dependencies:
-```
-uv sync --extra all_vision --group dev
-```
-
-### Using pip
+### Optional extras
 
 ```bash
-python -m venv .venv # Create a virtual environment
-source .venv/bin/activate
-pip install -e .
+uv pip install -e ".[reachy_mini_wireless]"  # Wireless Reachy Mini (GStreamer)
+uv pip install -e ".[local_vision]"          # Local vision (PyTorch/SmolVLM2)
+uv pip install -e ".[yolo_vision]"           # YOLO face tracking
+uv pip install -e ".[mediapipe_vision]"      # MediaPipe face tracking
+uv pip install -e ".[all_vision]"            # All vision extras
+uv pip install -e ".[dev]"                   # Dev tools (pytest, ruff, mypy)
 ```
-
-Install optional extras depending on the feature set you need:
-
-```bash
-# Wireless Reachy Mini support
-pip install -e .[reachy_mini_wireless]
-
-# Vision stacks (choose at least one if you plan to run face tracking)
-pip install -e .[local_vision]
-pip install -e .[yolo_vision]
-pip install -e .[mediapipe_vision]
-pip install -e .[all_vision]        # installs every vision extra
-
-# Tooling for development workflows
-pip install -e .[dev]
-```
-
-Some wheels (e.g. PyTorch) are large and require compatible CUDA or CPU builds—make sure your platform matches the binaries pulled in by each extra.
 
 ## Optional dependency groups
 
