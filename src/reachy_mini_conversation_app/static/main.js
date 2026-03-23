@@ -521,6 +521,8 @@ function startCameraFeed() {
   if (!img) return;
 
   let consecutive_fails = 0;
+  const enrollPreview = document.getElementById("enroll-camera-preview");
+  const enrollOffline = document.getElementById("enroll-preview-offline");
 
   async function refreshFrame() {
     try {
@@ -531,12 +533,21 @@ function startCameraFeed() {
       );
       if (resp.ok) {
         const blob = await resp.blob();
-        const url = URL.createObjectURL(blob);
+        const urlMain = URL.createObjectURL(blob);
         const old = img.src;
-        img.src = url;
+        img.src = urlMain;
         img.style.display = "block";
         offline.style.display = "none";
         if (old && old.startsWith("blob:")) URL.revokeObjectURL(old);
+        if (enrollPreview) {
+          const prevRev = enrollPreview.dataset.revokeUrl;
+          if (prevRev) URL.revokeObjectURL(prevRev);
+          const urlEnroll = URL.createObjectURL(blob);
+          enrollPreview.src = urlEnroll;
+          enrollPreview.style.display = "block";
+          enrollPreview.dataset.revokeUrl = urlEnroll;
+          if (enrollOffline) enrollOffline.style.display = "none";
+        }
         consecutive_fails = 0;
       } else {
         throw new Error("not ok");
@@ -546,6 +557,15 @@ function startCameraFeed() {
       if (consecutive_fails > 3) {
         img.style.display = "none";
         offline.style.display = "flex";
+        if (enrollPreview) {
+          enrollPreview.style.display = "none";
+          const prevRev = enrollPreview.dataset.revokeUrl;
+          if (prevRev) {
+            URL.revokeObjectURL(prevRev);
+            delete enrollPreview.dataset.revokeUrl;
+          }
+        }
+        if (enrollOffline) enrollOffline.style.display = "flex";
       }
     }
   }
@@ -1082,27 +1102,148 @@ function initPeopleRegistry() {
   const addFaceBtn = document.getElementById("people-add-face");
   const voiceToggle = document.getElementById("people-voice-toggle");
   const statusEl = document.getElementById("people-status");
-  const detailEl = document.getElementById("people-detail");
   const currentIdEl = document.getElementById("people-current-id");
-  if (!panel || !sel || !statusEl || !refreshBtn || !newName || !createBtn || !addFaceBtn || !voiceToggle || !detailEl || !currentIdEl) return;
+  const chipFaces = document.getElementById("people-chip-faces");
+  const chipVoices = document.getElementById("people-chip-voices");
+  const faceGallery = document.getElementById("people-face-gallery");
+  const voiceList = document.getElementById("people-voice-list");
+  const recordTimer = document.getElementById("people-record-timer");
+  const recordHint = document.getElementById("people-record-hint");
+  const stepEls = panel ? panel.querySelectorAll(".enrollment-step") : [];
+  if (
+    !panel ||
+    !sel ||
+    !statusEl ||
+    !refreshBtn ||
+    !newName ||
+    !createBtn ||
+    !addFaceBtn ||
+    !voiceToggle ||
+    !currentIdEl ||
+    !chipFaces ||
+    !chipVoices ||
+    !faceGallery ||
+    !voiceList ||
+    !recordTimer
+  ) {
+    return;
+  }
+
+  const voiceLabelEl = voiceToggle.querySelector(".enroll-record-label");
 
   let peopleList = [];
   let recordingVoice = false;
   let mediaRecorder = null;
   let mediaStream = null;
   let voiceChunks = [];
+  let recordTick = null;
+  let recordStartedAt = 0;
+
+  function setVoiceButtonLabel(text) {
+    if (voiceLabelEl) voiceLabelEl.textContent = text;
+    else voiceToggle.textContent = text;
+  }
+
+  function formatElapsed(ms) {
+    const s = Math.floor(ms / 1000);
+    const m = Math.floor(s / 60);
+    const r = s % 60;
+    return m > 0 ? `${m}:${r.toString().padStart(2, "0")}` : `0:${r.toString().padStart(2, "0")}`;
+  }
+
+  function renderFaceGallery(id, faces) {
+    faceGallery.innerHTML = "";
+    if (!id || !faces || !faces.length) {
+      const empty = document.createElement("p");
+      empty.className = "muted small";
+      empty.textContent = faces && !faces.length ? "No face photos yet — use the button above." : "Select a person.";
+      faceGallery.appendChild(empty);
+      return;
+    }
+    for (const fname of faces) {
+      const wrap = document.createElement("div");
+      wrap.className = "enroll-thumb";
+      const im = document.createElement("img");
+      im.alt = fname;
+      im.loading = "lazy";
+      im.src = `/people/registry/${encodeURIComponent(id)}/file/${encodeURIComponent(fname)}?_${Date.now()}`;
+      const cap = document.createElement("span");
+      cap.className = "enroll-thumb-cap";
+      cap.textContent = fname;
+      wrap.appendChild(im);
+      wrap.appendChild(cap);
+      faceGallery.appendChild(wrap);
+    }
+  }
+
+  function renderVoiceList(id, voices) {
+    voiceList.innerHTML = "";
+    if (!id || !voices || !voices.length) {
+      const empty = document.createElement("p");
+      empty.className = "muted small";
+      empty.textContent = voices && !voices.length ? "No clips yet — record with the mic button." : "Select a person.";
+      voiceList.appendChild(empty);
+      return;
+    }
+    for (const fname of voices) {
+      const row = document.createElement("div");
+      row.className = "enroll-voice-row";
+      const lab = document.createElement("span");
+      lab.className = "enroll-voice-name";
+      lab.textContent = fname;
+      const aud = document.createElement("audio");
+      aud.controls = true;
+      aud.preload = "none";
+      aud.src = `/people/registry/${encodeURIComponent(id)}/file/${encodeURIComponent(fname)}?_${Date.now()}`;
+      row.appendChild(lab);
+      row.appendChild(aud);
+      voiceList.appendChild(row);
+    }
+  }
+
+  function updateStepChips(id, p) {
+    const nf = p && Array.isArray(p.faces) ? p.faces.length : 0;
+    const nv = p && Array.isArray(p.voices) ? p.voices.length : 0;
+    stepEls.forEach((el) => {
+      el.classList.remove("enrollment-step--active", "enrollment-step--done");
+    });
+    if (!id) {
+      stepEls[0]?.classList.add("enrollment-step--active");
+      return;
+    }
+    stepEls[0]?.classList.add("enrollment-step--done");
+    if (nf === 0) {
+      stepEls[1]?.classList.add("enrollment-step--active");
+      return;
+    }
+    stepEls[1]?.classList.add("enrollment-step--done");
+    if (nv === 0) {
+      stepEls[2]?.classList.add("enrollment-step--active");
+    } else {
+      stepEls[2]?.classList.add("enrollment-step--done");
+      stepEls[2]?.classList.add("enrollment-step--active");
+    }
+  }
 
   function syncDetail() {
     const id = sel.value;
-    currentIdEl.textContent = id ? `Person id: ${id}` : "";
+    currentIdEl.textContent = id ? `Person id: ${id}` : "Select or create a person to begin.";
     const p = peopleList.find((x) => x.id === id);
-    if (p) {
-      detailEl.textContent = `faces: ${(p.faces || []).join(", ") || "—"}\nvoices: ${(p.voices || []).join(", ") || "—"}`;
-    } else {
-      detailEl.textContent = "";
+    const nf = p && Array.isArray(p.faces) ? p.faces.length : 0;
+    const nv = p && Array.isArray(p.voices) ? p.voices.length : 0;
+    chipFaces.textContent = `${nf} face${nf === 1 ? "" : "s"}`;
+    chipVoices.textContent = `${nv} voice clip${nv === 1 ? "" : "s"}`;
+    renderFaceGallery(id, p ? p.faces : []);
+    renderVoiceList(id, p ? p.voices : []);
+    updateStepChips(id, p || null);
+    voiceToggle.disabled = !id || recordingVoice;
+    addFaceBtn.disabled = !id;
+    if (recordHint) recordHint.style.display = recordingVoice ? "none" : "";
+    if (!recordingVoice) {
+      recordTimer.textContent = "";
+      setVoiceButtonLabel("Start recording");
+      voiceToggle.classList.remove("enroll-record-btn--recording");
     }
-    if (voiceToggle) voiceToggle.disabled = !id || recordingVoice;
-    if (addFaceBtn) addFaceBtn.disabled = !id;
   }
 
   async function refreshList() {
@@ -1234,7 +1375,13 @@ function initPeopleRegistry() {
         };
         mediaRecorder.start(200);
         recordingVoice = true;
-        voiceToggle.textContent = "Stop & upload clip";
+        recordStartedAt = Date.now();
+        if (recordTick) clearInterval(recordTick);
+        recordTick = setInterval(() => {
+          recordTimer.textContent = formatElapsed(Date.now() - recordStartedAt);
+        }, 250);
+        setVoiceButtonLabel("Stop & upload clip");
+        voiceToggle.classList.add("enroll-record-btn--recording");
         voiceToggle.disabled = false;
         statusEl.textContent = "Recording…";
         statusEl.className = "status";
@@ -1246,7 +1393,12 @@ function initPeopleRegistry() {
     }
 
     recordingVoice = false;
-    voiceToggle.textContent = "Start voice clip";
+    if (recordTick) {
+      clearInterval(recordTick);
+      recordTick = null;
+    }
+    setVoiceButtonLabel("Start recording");
+    voiceToggle.classList.remove("enroll-record-btn--recording");
     voiceToggle.disabled = true;
     statusEl.textContent = "Finishing recording…";
     try {

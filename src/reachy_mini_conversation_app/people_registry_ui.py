@@ -126,5 +126,17 @@ def mount_people_registry_routes(
         p = reg.file_path(person_id, filename)
         if p is None:
             return Response(status_code=404)
-        media = "image/jpeg" if filename.lower().endswith(".jpg") or filename.lower().endswith(".jpeg") else "application/octet-stream"
+        lower = filename.lower()
+        if lower.endswith((".jpg", ".jpeg")):
+            media = "image/jpeg"
+        elif lower.endswith(".webm"):
+            media = "audio/webm"
+        elif lower.endswith(".wav"):
+            media = "audio/wav"
+        elif lower.endswith(".mp3"):
+            media = "audio/mpeg"
+        elif lower.endswith(".ogg"):
+            media = "audio/ogg"
+        else:
+            media = "application/octet-stream"
         return FileResponse(str(p), media_type=media)

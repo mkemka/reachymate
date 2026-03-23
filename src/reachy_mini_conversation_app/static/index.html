@@ -68,45 +68,109 @@
         <p id="activation-status" class="status"></p>
       </div>
 
-      <!-- ===== People registry (voice + face enrollment) ===== -->
-      <div id="people-registry-panel" class="panel hidden">
+      <!-- ===== People registry (voice + face enrollment) — control-app style ===== -->
+      <div id="people-registry-panel" class="panel panel-enrollment hidden">
         <div class="panel-heading">
           <div>
-            <p class="eyebrow">Enrollment</p>
-            <h2>Voice &amp; face registry</h2>
+            <p class="eyebrow">Biometrics</p>
+            <h2>Voice &amp; face enrollment</h2>
           </div>
-          <span class="chip">Local files</span>
+          <span class="chip chip-ok">people_registry/</span>
         </div>
         <p class="muted small">
-          Records are stored on the robot instance under <code>people_registry/</code>: JPEG faces from Reachy’s camera and voice clips from <strong>this browser’s microphone</strong> (iterative adds per person).
+          Same layout language as the rest of this dashboard: pick a person, capture faces from <strong>Reachy’s camera</strong>, record voice on <strong>this PC’s mic</strong>. Files live under your instance <code>people_registry/</code>.
         </p>
-        <div class="section">
-          <div class="section-heading">
-            <h3>People</h3>
+
+        <div class="enrollment-steps" aria-label="Enrollment steps">
+          <div class="enrollment-step enrollment-step--active" data-step="1">
+            <span class="enrollment-step-num">1</span>
+            <span class="enrollment-step-label">Person</span>
           </div>
-          <div class="row row-top">
-            <label for="people-select">Current</label>
-            <select id="people-select"></select>
-            <button id="people-refresh" type="button" class="ghost">Refresh</button>
+          <span class="enrollment-step-join" aria-hidden="true"></span>
+          <div class="enrollment-step" data-step="2">
+            <span class="enrollment-step-num">2</span>
+            <span class="enrollment-step-label">Face</span>
           </div>
-          <div class="row">
-            <label for="people-new-name">New display name</label>
-            <input id="people-new-name" type="text" placeholder="e.g. Alex" autocomplete="name" />
-            <button id="people-create" type="button" class="ghost">Create person</button>
+          <span class="enrollment-step-join" aria-hidden="true"></span>
+          <div class="enrollment-step" data-step="3">
+            <span class="enrollment-step-num">3</span>
+            <span class="enrollment-step-label">Voice</span>
           </div>
-          <p id="people-current-id" class="muted small"></p>
         </div>
-        <div class="section">
-          <div class="section-heading">
-            <h3>Add samples</h3>
+
+        <div class="enrollment-control-bar">
+          <div class="enrollment-control-bar-inner">
+            <label for="people-select" class="enrollment-bar-label">Enrolling</label>
+            <div class="enrollment-toolbar">
+              <select id="people-select" class="enrollment-select"></select>
+              <button id="people-refresh" type="button" class="ghost">Refresh list</button>
+            </div>
+            <div class="people-summary-chips">
+              <span id="people-chip-faces" class="chip">0 faces</span>
+              <span id="people-chip-voices" class="chip">0 clips</span>
+            </div>
           </div>
-          <div class="actions people-actions">
-            <button id="people-add-face" type="button" class="ghost">Add face (Reachy camera)</button>
-            <button id="people-voice-toggle" type="button" class="ghost" disabled>Start voice clip</button>
-          </div>
-          <p id="people-status" class="status"></p>
-          <div id="people-detail" class="people-detail muted small"></div>
         </div>
+        <p id="people-current-id" class="muted small enrollment-id-line"></p>
+
+        <div class="section enrollment-section">
+          <div class="section-heading">
+            <h3>Add someone new</h3>
+            <p class="muted small">Creates a folder and index entry, then use steps 2–3.</p>
+          </div>
+          <div class="row enrollment-new-row">
+            <div class="enrollment-field">
+              <label for="people-new-name">Display name</label>
+              <input id="people-new-name" type="text" placeholder="e.g. Alex" autocomplete="name" />
+            </div>
+            <div class="enrollment-field enrollment-field--action">
+              <label class="enrollment-label-spacer">&nbsp;</label>
+              <button id="people-create" type="button">Create person</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="section enrollment-section">
+          <div class="section-heading">
+            <h3>Face samples (Reachy)</h3>
+            <p class="muted small">Preview matches the live feed. Save the current frame as a JPEG for the selected person.</p>
+          </div>
+          <div class="enroll-face-layout">
+            <div class="enroll-preview-box camera-container">
+              <img id="enroll-camera-preview" class="enroll-camera-preview" alt="Reachy camera preview for enrollment" />
+              <div id="enroll-preview-offline" class="camera-offline enroll-preview-offline">Camera offline</div>
+            </div>
+            <div class="enroll-face-side">
+              <div class="actions enrollment-face-actions">
+                <button id="people-add-face" type="button" class="ghost" disabled>Add frame as face photo</button>
+              </div>
+              <p class="muted small">Tip: add 2–3 angles (straight-on, slight left/right) for better downstream matching.</p>
+              <p class="eyebrow enrollment-gallery-label">Saved for this person</p>
+              <div id="people-face-gallery" class="enroll-thumb-grid"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="section enrollment-section">
+          <div class="section-heading">
+            <h3>Voice clips (this browser)</h3>
+            <p class="muted small">Grant mic access when prompted. Record a short phrase; you can add multiple clips per person.</p>
+          </div>
+          <div id="enroll-record-wrap" class="enroll-record-wrap">
+            <button id="people-voice-toggle" type="button" class="enroll-record-btn" disabled>
+              <span class="enroll-record-icon" aria-hidden="true"></span>
+              <span class="enroll-record-label">Start recording</span>
+            </button>
+            <div class="enroll-record-meta">
+              <span id="people-record-timer" class="enroll-timer muted"></span>
+              <span id="people-record-hint" class="muted small">Press again to stop and upload.</span>
+            </div>
+          </div>
+          <p class="eyebrow enrollment-gallery-label">Clips for this person</p>
+          <div id="people-voice-list" class="enroll-voice-list"></div>
+        </div>
+
+        <p id="people-status" class="status"></p>
       </div>
 
       <!-- ===== Controls Bar ===== -->
