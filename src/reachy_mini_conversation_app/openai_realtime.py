@@ -28,6 +28,16 @@ from reachy_mini_conversation_app.tools.core_tools import (
 logger = logging.getLogger(__name__)
 
 OPEN_AI_INPUT_SAMPLE_RATE: Final[Literal[24000]] = 24000
+
+# Receptionist tools: do not trigger an automatic spoken follow-up (wake phrase gates speech).
+RECEPTIONIST_SILENT_TOOLS: frozenset[str] = frozenset(
+    {
+        "receptionist_enroll",
+        "receptionist_verify",
+        "receptionist_list",
+        "receptionist_delete",
+    },
+)
 OPEN_AI_OUTPUT_SAMPLE_RATE: Final[Literal[24000]] = 24000
 
 
@@ -343,15 +353,25 @@ class OpenaiRealtimeHandler(AsyncStreamHandler):
                         except asyncio.CancelledError:
                             pass
 
+                    rg_tr = getattr(self.deps, "receptionist_gate", None)
+                    if rg_tr is not None:
+                        rg_tr.on_user_transcript(event.transcript)
+
                     await self.output_queue.put(AdditionalOutputs({"role": "user", "content": event.transcript}))
+
+                rg = getattr(self.deps, "receptionist_gate", None)
+                suppress_assistant = rg is not None and rg.should_suppress_assistant_output()
 
                 # Handle assistant transcription
                 if event.type in ("response.audio_transcript.done", "response.output_audio_transcript.done"):
                     logger.debug(f"Assistant transcript: {event.transcript}")
-                    await self.output_queue.put(AdditionalOutputs({"role": "assistant", "content": event.transcript}))
+                    if not suppress_assistant:
+                        await self.output_queue.put(AdditionalOutputs({"role": "assistant", "content": event.transcript}))
 
                 # Handle audio delta
                 if event.type in ("response.audio.delta", "response.output_audio.delta"):
+                    if suppress_assistant:
+                        continue
                     if self.deps.head_wobbler is not None:
                         self.deps.head_wobbler.feed(event.delta)
                     self.last_activity_time = asyncio.get_event_loop().time()
@@ -443,6 +463,8 @@ class OpenaiRealtimeHandler(AsyncStreamHandler):
                     # for other tool calls, let the robot reply out loud
                     if self.is_idle_tool_call:
                         self.is_idle_tool_call = False
+                    elif tool_name in RECEPTIONIST_SILENT_TOOLS:
+                        pass
                     else:
                         await self.connection.response.create(
                             response={
@@ -500,6 +522,10 @@ class OpenaiRealtimeHandler(AsyncStreamHandler):
 
         # Cast if needed
         audio_frame = audio_to_int16(audio_frame)
+
+        rg = getattr(self.deps, "receptionist_gate", None)
+        if rg is not None:
+            rg.record_audio_int16(audio_frame)
 
         # Send to OpenAI (guard against races during reconnect)
         try:
@@ -631,6 +657,9 @@ class OpenaiRealtimeHandler(AsyncStreamHandler):
 
     async def send_idle_signal(self, idle_duration: float) -> None:
         """Send an idle signal to the openai server."""
+        if getattr(self.deps, "receptionist_gate", None) is not None:
+            logger.debug("Skipping idle signal in receptionist mode")
+            return
         logger.debug("Sending idle signal")
         self.is_idle_tool_call = True
         timestamp_msg = f"[Idle time update: {self.format_timestamp()} - No activity for {idle_duration:.1f}s] You've been idle for a while. Feel free to get creative - dance, show an emotion, look around, do nothing, or just be yourself!"

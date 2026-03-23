@@ -1,0 +1,11 @@
+# Default profile: tools enabled for Reachy Mini conversation app
+# One tool name per line; # comments out a line.
+
+move_head
+camera
+head_tracking
+dance
+stop_dance
+play_emotion
+stop_emotion
+do_nothing

@@ -20,34 +20,62 @@ logger = logging.getLogger(__name__)
 
 
 class HeadTracker:
-    """Lightweight head tracker using YOLO for face detection."""
+    """Lightweight head tracker using YOLO (e.g. YOLO26 from Ultralytics Hub) for detection."""
 
     def __init__(
         self,
-        model_repo: str = "AdamCodd/YOLOv11n-face-detection",
-        model_filename: str = "model.pt",
+        model_repo: str | None = None,
+        model_filename: str | None = None,
         confidence_threshold: float = 0.3,
         device: str = "cpu",
     ) -> None:
         """Initialize YOLO-based head tracker.
 
         Args:
-            model_repo: HuggingFace model repository
-            model_filename: Model file name
+            model_repo: HuggingFace model repository (only if using Hugging Face source)
+            model_filename: Model file name on Hugging Face
             confidence_threshold: Minimum confidence for face detection
             device: Device to run inference on ('cpu' or 'cuda')
 
         """
         self.confidence_threshold = confidence_threshold
 
+        from reachy_mini_conversation_app.config import config as _cfg
+
+        yolo_id = getattr(_cfg, "YOLO_FACE_MODEL", "yolo26n.pt").strip()
+
         try:
-            # Download and load YOLO model
-            model_path = hf_hub_download(repo_id=model_repo, filename=model_filename)
-            self.model = YOLO(model_path).to(device)
-            logger.info(f"YOLO face detection model loaded from {model_repo}")
+            if yolo_id.lower() in ("hf", "huggingface"):
+                repo = model_repo or getattr(_cfg, "YOLO_FACE_MODEL_REPO", "AdamCodd/YOLOv11n-face-detection")
+                fn = model_filename or getattr(_cfg, "YOLO_FACE_MODEL_FILENAME", "model.pt")
+                model_path = hf_hub_download(repo_id=repo, filename=fn)
+                self.model = YOLO(model_path).to(device)
+                logger.info("YOLO loaded from Hugging Face: %s/%s", repo, fn)
+            else:
+                # e.g. yolo26n.pt, yolo26x.pt — Ultralytics downloads from hub when needed
+                self.model = YOLO(yolo_id).to(device)
+                logger.info("YOLO loaded: %s (Ultralytics)", yolo_id)
         except Exception as e:
-            logger.error(f"Failed to load YOLO model: {e}")
+            logger.error("Failed to load YOLO model: %s", e)
             raise
+
+    def _filter_person_or_face(self, detections: Detections) -> Detections:
+        """Keep COCO ``person`` or dedicated ``face``/``head`` classes; pass through single-class models."""
+        if detections.xyxy.shape[0] == 0 or detections.class_id is None:
+            return detections
+        names = getattr(self.model, "names", None)
+        if not isinstance(names, dict) or len(names) <= 1:
+            return detections
+        allowed = {"person", "face", "head"}
+        keep: list[bool] = []
+        for i in range(len(detections)):
+            cid = int(detections.class_id[i])
+            label = str(names.get(cid, "")).lower()
+            keep.append(label in allowed)
+        mask = np.array(keep, dtype=bool)
+        if not mask.any():
+            return detections
+        return detections[mask]
 
     def _select_best_face(self, detections: Detections) -> int | None:
         """Select the best face based on confidence and area (largest face with highest confidence).
@@ -122,6 +150,7 @@ class HeadTracker:
             # Run YOLO inference
             results = self.model(img, verbose=False)
             detections = Detections.from_ultralytics(results[0])
+            detections = self._filter_person_or_face(detections)
 
             # Select best face
             face_idx = self._select_best_face(detections)
@@ -146,3 +175,17 @@ class HeadTracker:
         except Exception as e:
             logger.error(f"Error in head position detection: {e}")
             return None, None
+
+    def get_best_face_bbox(self, img: NDArray[np.uint8]) -> NDArray[np.float32] | None:
+        """Return xyxy bbox of the best face, or None if none passes the confidence threshold."""
+        try:
+            results = self.model(img, verbose=False)
+            detections = Detections.from_ultralytics(results[0])
+            detections = self._filter_person_or_face(detections)
+            face_idx = self._select_best_face(detections)
+            if face_idx is None:
+                return None
+            return detections.xyxy[face_idx].astype(np.float32)
+        except Exception as e:
+            logger.error("Error in face bbox detection: %s", e)
+            return None

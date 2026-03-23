@@ -5,15 +5,17 @@ colorFrom: red
 colorTo: blue
 sdk: static
 pinned: false
-short_description: Talk with Reachy Mini !
+short_description: ReachyConvoMate — realtime voice, Gradio dashboard, optional receptionist gate
 tags:
  - reachy_mini
  - reachy_mini_python_app
 ---
 
-# Reachy Mini conversation app
+# ReachyConvoMate (Reachy Mini conversation app)
 
-Conversational app for the Reachy Mini robot combining OpenAI's realtime APIs, vision pipelines, and choreographed motion libraries.
+**Package:** `reachy-convo-mate` · **CLI:** `reachy-convo-mate`
+
+Conversational app for the Reachy Mini robot combining OpenAI’s realtime APIs, vision pipelines, choreographed motion, and a Gradio dashboard (live camera, chat log, personality editor, optional doctor-practice mode). Optional **receptionist** mode adds face + voice enrollment and verification (InsightFace, Whisper, YOLO).
 
 ![Reachy Mini Dance](docs/assets/reachy_mini_dance.gif)
 
@@ -29,12 +31,17 @@ The app follows a layered architecture connecting the user, AI services, and rob
 - Real-time audio conversation loop powered by the OpenAI realtime API and `fastrtc` for low-latency streaming.
 - Vision processing uses gpt-realtime by default (when camera tool is used), with optional local vision processing using SmolVLM2 model running on-device (CPU/GPU/MPS) via `--local-vision` flag.
 - Layered motion system queues primary moves (dances, emotions, goto poses, breathing) while blending speech-reactive wobble and face-tracking.
-- Async tool dispatch integrates robot motion, camera capture, and optional face-tracking capabilities through a Gradio web UI with live transcripts.
+- Async tool dispatch integrates robot motion, camera capture, and optional face-tracking through a Gradio web UI with live transcripts; register the app with the Reachy Mini daemon (see [`install.md`](install.md)).
+- Optional **receptionist** profile and `--receptionist` flag: enroll and verify visitors with face embeddings and a spoken passphrase; data under `receptionist_data/` (requires `pip install -e ".[receptionist]"` and **ffmpeg** on `PATH` for Whisper).
+
+## Additional docs
+- **[`install.md`](install.md)** — install as a daemon-discovered app (`reachy_mini_apps` entry point) and open the settings UI.
+- **[`docs/microphone-and-camera.md`](docs/microphone-and-camera.md)** — where mic/camera live (robot vs PC), daemon + app startup, and troubleshooting “camera offline”.
 
 ## Installation
 
 > [!IMPORTANT]
-> Requires Python 3.12 and [uv](https://docs.astral.sh/uv/). Windows support is experimental.
+> Requires **Python 3.10+** (3.12 recommended; matches `pyproject.toml` and tooling) and [uv](https://docs.astral.sh/uv/). Windows support is experimental.
 
 ### Quickstart
 
@@ -65,6 +72,7 @@ uv pip install -e ".[local_vision]"          # Local vision (PyTorch/SmolVLM2)
 uv pip install -e ".[yolo_vision]"           # YOLO face tracking
 uv pip install -e ".[mediapipe_vision]"      # MediaPipe face tracking
 uv pip install -e ".[all_vision]"            # All vision extras
+uv pip install -e ".[receptionist]"          # Receptionist: InsightFace + Whisper + YOLO face stack
 uv pip install -e ".[dev]"                   # Dev tools (pytest, ruff, mypy)
 ```
 
@@ -77,6 +85,7 @@ uv pip install -e ".[dev]"                   # Dev tools (pytest, ruff, mypy)
 | `yolo_vision` | YOLOv8 tracking via `ultralytics` and `supervision`. | CPU friendly; supports the `--head-tracker yolo` option.
 | `mediapipe_vision` | Lightweight landmark tracking with MediaPipe. | Works on CPU; enables `--head-tracker mediapipe`.
 | `all_vision` | Convenience alias installing every vision extra. | Install when you want the flexibility to experiment with every provider.
+| `receptionist` | Face + voice gate for the receptionist profile (`--receptionist`). | Pulls InsightFace, ONNX Runtime, Whisper, SciPy, Torch, Ultralytics, Supervision; Whisper needs **ffmpeg** on `PATH`. |
 | `dev` | Developer tooling (`pytest`, `ruff`). | Add on top of either base or `all_vision` environments.
 
 ## Configuration
@@ -92,15 +101,17 @@ uv pip install -e ".[dev]"                   # Dev tools (pytest, ruff, mypy)
 | `HF_TOKEN` | Optional token for Hugging Face models (only used with `--local-vision` flag, falls back to `huggingface-cli login`).
 | `LOCAL_VISION_MODEL` | Hugging Face model path for local vision processing (only used with `--local-vision` flag, defaults to `HuggingFaceTB/SmolVLM2-2.2B-Instruct`).
 
+Profile and receptionist-related variables are documented in [`.env.example`](.env.example), including `REACHY_MINI_CUSTOM_PROFILE` (e.g. `receptionist`), `RECEPTIONIST_MODE`, `YOLO_FACE_MODEL`, `WHISPER_MODEL`, `RECEPTIONIST_VOICE_THRESHOLD`, `INSIGHTFACE_MODEL_NAME`, and `RECEPTIONIST_WAKE_PHRASES`.
+
 ## Running the app
 
 Activate your virtual environment, ensure the Reachy Mini robot (or simulator) is reachable, then launch:
 
 ```bash
-reachy-mini-conversation-app
+reachy-convo-mate
 ```
 
-By default, the app runs in console mode for direct audio interaction. Use the `--gradio` flag to launch a web UI served locally at http://127.0.0.1:7860/ (required when running in simulation mode). With a camera attached, vision is handled by the gpt-realtime model when the camera tool is used. For local vision processing, use the `--local-vision` flag to process frames periodically using the SmolVLM2 model. Additionally, you can enable face tracking via YOLO or MediaPipe pipelines depending on the extras you installed.
+By default, the app runs in console mode for direct audio interaction. Use the `--gradio` flag to launch a web UI served locally at http://127.0.0.1:7860/ (required when running in simulation mode). With a camera attached, vision is handled by the gpt-realtime model when the camera tool is used. For local vision processing, use the `--local-vision` flag to process frames periodically using the SmolVLM2 model. Additionally, you can enable face tracking via YOLO or MediaPipe pipelines depending on the extras you installed. When using `--gradio`, the dashboard can include a **Doctor** panel for case-based practice (cases ship in-repo; see `medical.yaml` / `doctor_cases.py`).
 
 ### CLI options
 
@@ -111,33 +122,43 @@ By default, the app runs in console mode for direct audio interaction. Use the `
 | `--local-vision` | `False` | Use local vision model (SmolVLM2) for periodic image processing instead of gpt-realtime vision. Requires `local_vision` extra to be installed. |
 | `--gradio` | `False` | Launch the Gradio web UI. Without this flag, runs in console mode. Required when running in simulation mode. |
 | `--debug` | `False` | Enable verbose logging for troubleshooting. |
-| `--wireless-version` | `False` | Use GStreamer backend for wireless version of the robot. Requires `reachy_mini_wireless` extra to be installed.
+| `--wireless-version` | `False` | Use GStreamer backend for wireless version of the robot. Requires `reachy_mini_wireless` extra to be installed. |
+| `--on-device` | `False` | Use when the conversation app runs on the same machine as the Reachy Mini daemon. |
+| `--receptionist` | `False` | Enable receptionist biometric gate (face + voice + wake phrases). Requires `receptionist` extra and a camera-capable setup. |
 
 
 ### Examples
 - Run on hardware with MediaPipe face tracking:
 
   ```bash
-  reachy-mini-conversation-app --head-tracker mediapipe
+  reachy-convo-mate --head-tracker mediapipe
   ```
 
 - Run with local vision processing (requires `local_vision` extra):
 
   ```bash
-  reachy-mini-conversation-app --local-vision
+  reachy-convo-mate --local-vision
   ```
 
 - Run with wireless support (requires `reachy_mini_wireless` extra and daemon started with `--wireless-version`):
 
   ```bash
-  reachy-mini-conversation-app --wireless-version
+  reachy-convo-mate --wireless-version
   ```
 
 - Disable the camera pipeline (audio-only conversation):
 
   ```bash
-  reachy-mini-conversation-app --no-camera
+  reachy-convo-mate --no-camera
   ```
+
+- Receptionist profile with biometric gate (install `receptionist` extra, set profile, ensure ffmpeg for Whisper):
+
+  ```bash
+  set REACHY_MINI_CUSTOM_PROFILE=receptionist
+  reachy-convo-mate --gradio --receptionist
+  ```
+  On Unix: `export REACHY_MINI_CUSTOM_PROFILE=receptionist` before the same command.
 
 ### Troubleshooting
 
@@ -160,6 +181,10 @@ It probably means that the Reachy Mini's daemon isn't running. Install [Reachy M
 | `play_emotion` | Play a recorded emotion clip via Hugging Face assets. | Needs `HF_TOKEN` for the recorded emotions dataset. |
 | `stop_emotion` | Clear queued emotions. | Core install only. |
 | `do_nothing` | Explicitly remain idle. | Core install only. |
+| `receptionist_enroll` | Capture face + voice passphrase for a named visitor. | `--receptionist` and `receptionist` extra. |
+| `receptionist_verify` | Verify visitor against enrolled face + passphrase. | `--receptionist` and `receptionist` extra. |
+| `receptionist_list` | List enrolled visitors. | `--receptionist` and `receptionist` extra. |
+| `receptionist_delete` | Remove an enrollment by `person_id`. | `--receptionist` and `receptionist` extra. |
 
 ## Using custom profiles
 Create custom profiles with dedicated instructions and enabled tools! 

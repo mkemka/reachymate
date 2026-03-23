@@ -34,6 +34,26 @@ class Config:
     REACHY_MINI_CUSTOM_PROFILE = os.getenv("REACHY_MINI_CUSTOM_PROFILE")
     logger.debug(f"Custom Profile: {REACHY_MINI_CUSTOM_PROFILE}")
 
+    # Receptionist / biometric gate (optional; use with --receptionist and pip install '.[receptionist]')
+    RECEPTIONIST_MODE = os.getenv("RECEPTIONIST_MODE", "").strip().lower() in ("1", "true", "yes")
+    RECEPTIONIST_FACE_THRESHOLD = float(os.getenv("RECEPTIONIST_FACE_THRESHOLD", "0.35"))
+    # Min Whisper phrase similarity (difflib) vs enrolled passphrase (see openai-whisper)
+    RECEPTIONIST_VOICE_THRESHOLD = float(os.getenv("RECEPTIONIST_VOICE_THRESHOLD", "0.72"))
+    RECEPTIONIST_SESSION_TTL_S = float(os.getenv("RECEPTIONIST_SESSION_TTL_S", "300"))
+    RECEPTIONIST_AUDIO_BUFFER_S = float(os.getenv("RECEPTIONIST_AUDIO_BUFFER_S", "6"))
+    # Comma-separated substrings; user must say one after face+voice unlock before the robot speaks
+    RECEPTIONIST_WAKE_PHRASES = os.getenv(
+        "RECEPTIONIST_WAKE_PHRASES",
+        "hey reachy,hello reachy,reachy",
+    )
+    # Ultralytics YOLO weights, e.g. yolo26n.pt / yolo26x.pt (https://platform.ultralytics.com/ultralytics/yolo26/yolo26x)
+    # Set to "hf" or "huggingface" to use the Hugging Face face-detector checkpoint instead.
+    YOLO_FACE_MODEL = os.getenv("YOLO_FACE_MODEL", "yolo26n.pt").strip()
+    YOLO_FACE_MODEL_REPO = os.getenv("YOLO_FACE_MODEL_REPO", "AdamCodd/YOLOv11n-face-detection")
+    YOLO_FACE_MODEL_FILENAME = os.getenv("YOLO_FACE_MODEL_FILENAME", "model.pt")
+    INSIGHTFACE_MODEL_NAME = os.getenv("INSIGHTFACE_MODEL_NAME", "buffalo_l")
+    WHISPER_MODEL = os.getenv("WHISPER_MODEL", "base").strip()
+
 
 config = Config()
 

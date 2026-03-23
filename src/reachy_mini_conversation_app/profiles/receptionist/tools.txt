@@ -1,0 +1,13 @@
+# Receptionist profile — YOLO26 + InsightFace + Whisper verification
+move_head
+camera
+head_tracking
+dance
+stop_dance
+play_emotion
+stop_emotion
+do_nothing
+receptionist_enroll
+receptionist_verify
+receptionist_list
+receptionist_delete

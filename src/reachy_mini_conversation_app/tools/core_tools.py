@@ -55,6 +55,7 @@ class ToolDependencies:
     vision_manager: Any | None = None
     head_wobbler: Any | None = None  # HeadWobbler for audio-reactive motion
     motion_duration_s: float = 1.0
+    receptionist_gate: Any | None = None  # ReceptionistGate when --receptionist
 
 
 # Tool base class
