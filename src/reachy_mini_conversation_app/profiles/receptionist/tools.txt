@@ -1,4 +1,4 @@
-# Receptionist profile — YOLO26 + InsightFace + Whisper verification
+# Receptionist profile — YOLO26 + InsightFace + Whisper + Ledger
 move_head
 camera
 head_tracking
@@ -11,3 +11,4 @@ receptionist_enroll
 receptionist_verify
 receptionist_list
 receptionist_delete
+ledger_balance
