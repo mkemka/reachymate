@@ -30,6 +30,7 @@ from reachy_mini_conversation_app.config import config
 from reachy_mini_conversation_app.openai_realtime import OpenaiRealtimeHandler
 from reachy_mini_conversation_app.people_registry_ui import mount_people_registry_routes
 from reachy_mini_conversation_app.headless_personality_ui import mount_personality_routes
+from reachy_mini_conversation_app.receptionist_dashboard import mount_receptionist_dashboard
 
 
 try:
@@ -746,6 +747,13 @@ class LocalStream:
                         get_persisted_personality=self._read_persisted_personality,
                     )
                     mount_people_registry_routes(self._settings_app, lambda: self._instance_path)
+                    # Mount receptionist dashboard routes (safe to call even if gate is None)
+                    _gate_ref = getattr(self.handler.deps, "receptionist_gate", None)
+                    mount_receptionist_dashboard(
+                        self._settings_app,
+                        get_gate=lambda: getattr(self.handler.deps, "receptionist_gate", None),
+                        get_loop=lambda: self._asyncio_loop,
+                    )
             except Exception:
                 pass
             self._tasks = [
