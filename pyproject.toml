@@ -29,6 +29,7 @@ dependencies = [
     "reachy_mini>=1.2.3rc1",
     "eclipse-zenoh~=1.7.0",
     "gradio_client>=1.13.3",
+    "pycaw; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]
@@ -43,6 +44,16 @@ all_vision = [
   "torch", "transformers", "num2words",
   "ultralytics", "supervision",
   "mediapipe==0.10.14",
+]
+# YOLO26 (Ultralytics) + InsightFace + OpenAI Whisper for receptionist enroll/verify
+receptionist = [
+  "insightface>=0.7.3",
+  "onnxruntime>=1.17.0",
+  "openai-whisper>=20231117",
+  "scipy>=1.11.0",
+  "torch",
+  "ultralytics",
+  "supervision",
 ]
 
 [dependency-groups]
@@ -86,6 +97,7 @@ select = [
   "C4",  # flake8-comprehensions
   "D",   # pydocstyle
 ]
+per-file-ignores = { "src/reachy_mini_conversation_app/receptionist/*.py" = ["D102", "D103", "D107"], "src/reachy_mini_conversation_app/tools/receptionist_*.py" = ["D102"] }
 ignore = [
   "E501",  # handled by formatter
   "D100",  # ignore missing module docstrings

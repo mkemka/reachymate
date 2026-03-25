@@ -28,6 +28,16 @@ from reachy_mini_conversation_app.tools.core_tools import (
 logger = logging.getLogger(__name__)
 
 OPEN_AI_INPUT_SAMPLE_RATE: Final[Literal[24000]] = 24000
+
+# Receptionist tools: do not trigger an automatic spoken follow-up (wake phrase gates speech).
+RECEPTIONIST_SILENT_TOOLS: frozenset[str] = frozenset(
+    {
+        "receptionist_enroll",
+        "receptionist_verify",
+        "receptionist_list",
+        "receptionist_delete",
+    },
+)
 OPEN_AI_OUTPUT_SAMPLE_RATE: Final[Literal[24000]] = 24000
 
 
@@ -146,6 +156,48 @@ class OpenaiRealtimeHandler(AsyncStreamHandler):
             logger.debug("Debounced partial cancelled")
             raise
 
+    async def _autonomous_checkin_task(self) -> None:
+        """Forward the gate's autonomous check-in loop if available."""
+        rg = getattr(self.deps, "receptionist_gate", None)
+        if rg is None:
+            return
+        run_loop = getattr(rg, "run_autonomous_checkin_loop", None)
+        if callable(run_loop):
+            try:
+                await run_loop()
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                logger.warning("Autonomous check-in loop exited unexpectedly: %s", e)
+
+    async def _prompt_injector_task(self) -> None:
+        """Periodically check for pending spoken prompts from the state machine and inject them."""
+        while True:
+            await asyncio.sleep(0.5)
+            rg = getattr(self.deps, "receptionist_gate", None)
+            if rg is None:
+                continue
+            pop = getattr(rg, "pop_pending_prompt", None)
+            if not callable(pop):
+                continue
+            prompt = pop()
+            if not prompt or self.connection is None:
+                continue
+            try:
+                await self.connection.conversation.item.create(
+                    item={
+                        "type": "message",
+                        "role": "user",
+                        "content": [{"type": "input_text", "text": f"[Receptionist system] Say this to the visitor: {prompt}"}],
+                    },
+                )
+                await self.connection.response.create(
+                    response={"instructions": f"Say exactly this to the visitor: {prompt}"},
+                )
+                logger.info("Injected pending prompt: %s", prompt[:80])
+            except Exception as e:
+                logger.warning("Prompt injection failed: %s", e)
+
     async def start_up(self) -> None:
         """Start the handler with minimal retries on unexpected websocket closure."""
         openai_api_key = config.OPENAI_API_KEY
@@ -169,6 +221,10 @@ class OpenaiRealtimeHandler(AsyncStreamHandler):
                 openai_api_key = "DUMMY"
 
         self.client = AsyncOpenAI(api_key=openai_api_key)
+
+        # Start background tasks that live for the lifetime of this handler
+        asyncio.create_task(self._autonomous_checkin_task(), name="autonomous-checkin")
+        asyncio.create_task(self._prompt_injector_task(), name="prompt-injector")
 
         max_attempts = 3
         for attempt in range(1, max_attempts + 1):
@@ -343,15 +399,25 @@ class OpenaiRealtimeHandler(AsyncStreamHandler):
                         except asyncio.CancelledError:
                             pass
 
+                    rg_tr = getattr(self.deps, "receptionist_gate", None)
+                    if rg_tr is not None:
+                        rg_tr.on_user_transcript(event.transcript)
+
                     await self.output_queue.put(AdditionalOutputs({"role": "user", "content": event.transcript}))
+
+                rg = getattr(self.deps, "receptionist_gate", None)
+                suppress_assistant = rg is not None and rg.should_suppress_assistant_output()
 
                 # Handle assistant transcription
                 if event.type in ("response.audio_transcript.done", "response.output_audio_transcript.done"):
                     logger.debug(f"Assistant transcript: {event.transcript}")
-                    await self.output_queue.put(AdditionalOutputs({"role": "assistant", "content": event.transcript}))
+                    if not suppress_assistant:
+                        await self.output_queue.put(AdditionalOutputs({"role": "assistant", "content": event.transcript}))
 
                 # Handle audio delta
                 if event.type in ("response.audio.delta", "response.output_audio.delta"):
+                    if suppress_assistant:
+                        continue
                     if self.deps.head_wobbler is not None:
                         self.deps.head_wobbler.feed(event.delta)
                     self.last_activity_time = asyncio.get_event_loop().time()
@@ -443,6 +509,8 @@ class OpenaiRealtimeHandler(AsyncStreamHandler):
                     # for other tool calls, let the robot reply out loud
                     if self.is_idle_tool_call:
                         self.is_idle_tool_call = False
+                    elif tool_name in RECEPTIONIST_SILENT_TOOLS:
+                        pass
                     else:
                         await self.connection.response.create(
                             response={
@@ -500,6 +568,10 @@ class OpenaiRealtimeHandler(AsyncStreamHandler):
 
         # Cast if needed
         audio_frame = audio_to_int16(audio_frame)
+
+        rg = getattr(self.deps, "receptionist_gate", None)
+        if rg is not None:
+            rg.record_audio_int16(audio_frame)
 
         # Send to OpenAI (guard against races during reconnect)
         try:
@@ -631,6 +703,9 @@ class OpenaiRealtimeHandler(AsyncStreamHandler):
 
     async def send_idle_signal(self, idle_duration: float) -> None:
         """Send an idle signal to the openai server."""
+        if getattr(self.deps, "receptionist_gate", None) is not None:
+            logger.debug("Skipping idle signal in receptionist mode")
+            return
         logger.debug("Sending idle signal")
         self.is_idle_tool_call = True
         timestamp_msg = f"[Idle time update: {self.format_timestamp()} - No activity for {idle_duration:.1f}s] You've been idle for a while. Feel free to get creative - dance, show an emotion, look around, do nothing, or just be yourself!"

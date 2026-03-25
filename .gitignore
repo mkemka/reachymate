@@ -31,6 +31,9 @@ coverage.xml
 .ruff_cache/
 .mypy_cache/
 
+# Local tooling / cached hub metadata (not part of the app)
+.app_metadata/
+
 # IDE
 .vscode/
 .idea/

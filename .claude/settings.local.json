@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:platform.ultralytics.com)",
+      "WebFetch(domain:www.insightface.ai)",
+      "WebFetch(domain:github.com)"
+    ]
+  }
+}

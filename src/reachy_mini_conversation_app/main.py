@@ -19,6 +19,7 @@ from reachy_mini_conversation_app.utils import (
     setup_logger,
     handle_vision_stuff,
 )
+from reachy_mini_conversation_app.config import config
 
 
 def update_chatbot(chatbot: List[Dict[str, Any]], response: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -81,7 +82,30 @@ def run(
         robot.client.disconnect()
         sys.exit(1)
 
-    camera_worker, _, vision_manager = handle_vision_stuff(args, robot)
+    receptionist_active = bool(args.receptionist or getattr(config, "RECEPTIONIST_MODE", False))
+    if receptionist_active:
+        if args.no_camera:
+            logger.error("Receptionist mode requires a camera; remove --no-camera.")
+            robot.client.disconnect()
+            sys.exit(1)
+        if args.head_tracker is None:
+            logger.info("Receptionist: using --head-tracker yolo (YOLO + InsightFace crop).")
+            args.head_tracker = "yolo"
+
+    camera_worker, head_tracker, vision_manager = handle_vision_stuff(args, robot)
+
+    receptionist_gate = None
+    if receptionist_active:
+        try:
+            from reachy_mini_conversation_app.receptionist.stack import create_receptionist_stack
+
+            if camera_worker is None:
+                raise RuntimeError("camera_worker is None")
+            receptionist_gate = create_receptionist_stack(instance_path, camera_worker, head_tracker)
+        except Exception as e:
+            logger.error("Failed to initialize receptionist mode: %s", e)
+            robot.client.disconnect()
+            sys.exit(1)
 
     movement_manager = MovementManager(
         current_robot=robot,
@@ -96,6 +120,7 @@ def run(
         camera_worker=camera_worker,
         vision_manager=vision_manager,
         head_wobbler=head_wobbler,
+        receptionist_gate=receptionist_gate,
     )
     current_file_path = os.path.dirname(os.path.abspath(__file__))
     logger.debug(f"Current file absolute path: {current_file_path}")

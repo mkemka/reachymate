@@ -1,0 +1,41 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "ReachyMate — Static Preview",
+      "runtimeExecutable": "C:/Users/shria/Desktop/reachymate/.venv/Scripts/python.exe",
+      "runtimeArgs": ["-m", "http.server", "7861", "--directory", "src/reachy_mini_conversation_app/static"],
+      "port": 7861
+    },
+    {
+      "name": "ReachyMate — Receptionist (Gradio UI)",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "reachy_mini_conversation_app.main", "--receptionist", "--gradio"],
+      "port": 7860
+    },
+    {
+      "name": "ReachyMate — Receptionist (Headless)",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "reachy_mini_conversation_app.main", "--receptionist"],
+      "port": 7860
+    },
+    {
+      "name": "ReachyMate — Default Conversational (Gradio UI)",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "reachy_mini_conversation_app.main", "--gradio"],
+      "port": 7860
+    },
+    {
+      "name": "ReachyMate — Receptionist + YOLO head tracker (Gradio UI)",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "reachy_mini_conversation_app.main", "--receptionist", "--gradio", "--head-tracker", "yolo"],
+      "port": 7860
+    },
+    {
+      "name": "ReachyMate — Debug mode (Receptionist + Gradio)",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "reachy_mini_conversation_app.main", "--receptionist", "--gradio", "--debug"],
+      "port": 7860
+    }
+  ]
+}

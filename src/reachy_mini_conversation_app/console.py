@@ -28,7 +28,9 @@ from reachy_mini import ReachyMini
 from reachy_mini.media.media_manager import MediaBackend
 from reachy_mini_conversation_app.config import config
 from reachy_mini_conversation_app.openai_realtime import OpenaiRealtimeHandler
+from reachy_mini_conversation_app.people_registry_ui import mount_people_registry_routes
 from reachy_mini_conversation_app.headless_personality_ui import mount_personality_routes
+from reachy_mini_conversation_app.receptionist_dashboard import mount_receptionist_dashboard
 
 
 try:
@@ -88,6 +90,10 @@ class LocalStream:
         self._doctor_case_id: Optional[int] = None
         self._doctor_hint_index = 0
         self._doctor_previous_instructions: Optional[str] = None
+        # Optional activation phrase: block mic → model and assistant audio until unlocked
+        phrase = getattr(config, "REACHY_ACTIVATION_PHRASE", None)
+        self._activation_phrase: Optional[str] = phrase if phrase else None
+        self._activation_unlocked: bool = self._activation_phrase is None
 
     # ---- Settings UI (only when API key is missing) ----
     def _read_env_lines(self, env_path: Path) -> list[str]:
@@ -290,7 +296,14 @@ class LocalStream:
         @self._settings_app.get("/status")
         def _status() -> JSONResponse:
             has_key = bool(config.OPENAI_API_KEY and str(config.OPENAI_API_KEY).strip())
-            return JSONResponse({"has_key": has_key}, headers=NO_CACHE)
+            return JSONResponse(
+                {
+                    "has_key": has_key,
+                    "activation_required": self._activation_phrase is not None,
+                    "activation_unlocked": self._activation_unlocked,
+                },
+                headers=NO_CACHE,
+            )
 
         # GET /ready -> whether backend finished loading tools
         @self._settings_app.get("/ready")
@@ -452,11 +465,43 @@ class LocalStream:
         class ChatMessage(BaseModel):
             text: str
 
+        class ActivationUnlockPayload(BaseModel):
+            phrase: str
+
+        @self._settings_app.post("/activation/unlock")
+        def _activation_unlock(payload: ActivationUnlockPayload) -> JSONResponse:
+            if not self._activation_phrase:
+                return JSONResponse({"ok": True, "unlocked": True, "note": "activation_not_configured"})
+            got = (payload.phrase or "").strip().casefold()
+            if got == self._activation_phrase.casefold():
+                self._activation_unlocked = True
+                logger.info("Conversation activated via /activation/unlock")
+                return JSONResponse({"ok": True, "unlocked": True})
+            return JSONResponse({"ok": False, "error": "wrong_phrase"}, status_code=403)
+
         @self._settings_app.post("/chat/send")
         def _chat_send(payload: ChatMessage) -> JSONResponse:
             text = (payload.text or "").strip()
             if not text:
                 return JSONResponse({"ok": False, "error": "empty"}, status_code=400)
+
+            if self._activation_phrase and not self._activation_unlocked:
+                if text.casefold() == self._activation_phrase.casefold():
+                    self._activation_unlocked = True
+                    logger.info("Conversation activated via chat phrase")
+                    with self._chat_lock:
+                        self._chat_sequence += 1
+                        self._chat_history.append({
+                            "seq": self._chat_sequence,
+                            "role": "assistant",
+                            "content": "Unlocked — microphone audio is now sent to the model. You can talk to Reachy.",
+                            "tool": False,
+                        })
+                    return JSONResponse({"ok": True, "activation": "unlocked"})
+                return JSONResponse(
+                    {"ok": False, "error": "activation_required"},
+                    status_code=403,
+                )
 
             loop = self._asyncio_loop
             if loop is None:
@@ -497,11 +542,11 @@ class LocalStream:
         # ---- Doctor Mode ----
 
         from reachy_mini_conversation_app.doctor_cases import (
-            build_patient_prompt,
-            check_answer,
-            get_case_by_id,
-            get_case_list,
             get_hint,
+            check_answer,
+            get_case_list,
+            get_case_by_id,
+            build_patient_prompt,
         )
 
         class DoctorStartPayload(BaseModel):
@@ -596,7 +641,7 @@ class LocalStream:
                     conn = self.handler.connection
                     if conn is None:
                         return
-                    from reachy_mini_conversation_app.prompts import get_session_instructions, get_session_voice
+                    from reachy_mini_conversation_app.prompts import get_session_voice, get_session_instructions
                     instructions = get_session_instructions()
                     voice = get_session_voice()
                     await conn.session.update(session={
@@ -701,6 +746,14 @@ class LocalStream:
                         persist_personality=self._persist_personality,
                         get_persisted_personality=self._read_persisted_personality,
                     )
+                    mount_people_registry_routes(self._settings_app, lambda: self._instance_path)
+                    # Mount receptionist dashboard routes (safe to call even if gate is None)
+                    _gate_ref = getattr(self.handler.deps, "receptionist_gate", None)
+                    mount_receptionist_dashboard(
+                        self._settings_app,
+                        get_gate=lambda: getattr(self.handler.deps, "receptionist_gate", None),
+                        get_loop=lambda: self._asyncio_loop,
+                    )
             except Exception:
                 pass
             self._tasks = [
@@ -765,7 +818,12 @@ class LocalStream:
 
         while not self._stop_event.is_set():
             audio_frame = self._robot.media.get_audio_sample()
-            if audio_frame is not None and not self._muted and not self._sleeping:
+            if (
+                audio_frame is not None
+                and not self._muted
+                and not self._sleeping
+                and self._activation_unlocked
+            ):
                 await self.handler.receive((input_sample_rate, audio_frame))
             await asyncio.sleep(0)  # avoid busy loop
 
@@ -821,8 +879,8 @@ class LocalStream:
                                     self._chat_images.pop(r.get("seq", -1), None)
 
             elif isinstance(handler_output, tuple):
-                # Drop outgoing audio while sleeping
-                if self._sleeping:
+                # Drop outgoing audio while sleeping or before activation unlock
+                if self._sleeping or not self._activation_unlocked:
                     continue
 
                 input_sample_rate, audio_data = handler_output
