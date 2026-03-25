@@ -1,4 +1,16 @@
-"""Face embedding via InsightFace (https://www.insightface.ai/) on a YOLO crop or full frame."""
+"""Face embedding via InsightFace buffalo_l on a YOLO26x crop or full frame.
+
+InsightFace: https://www.insightface.ai/
+Model: buffalo_l — best open-source face recognition model.
+Install: pip install '.[receptionist]'  (insightface + onnxruntime)
+
+Pipeline
+--------
+1. YOLO26x detects the face/person bounding box in the camera frame.
+2. ``embed_frame_with_bbox`` crops that region (+ 15% margin).
+3. InsightFace runs its own internal face detector on the crop, then computes
+   a 512-d L2-normalised embedding used for cosine similarity matching.
+"""
 
 from __future__ import annotations
 import logging

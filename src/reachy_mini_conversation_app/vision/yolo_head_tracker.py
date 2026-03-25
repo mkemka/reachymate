@@ -20,7 +20,18 @@ logger = logging.getLogger(__name__)
 
 
 class HeadTracker:
-    """Lightweight head tracker using YOLO (e.g. YOLO26 from Ultralytics Hub) for detection."""
+    """Head/face tracker using YOLO26x (Ultralytics) for detection.
+
+    Default model: YOLO26x — highest accuracy variant.
+    https://platform.ultralytics.com/ultralytics/yolo26/yolo26x
+
+    Face crops from this tracker feed directly into the InsightFace buffalo_l
+    embedding model for recognition. YOLO26x detects person/face/head classes;
+    InsightFace re-detects and embeds the face within each crop.
+
+    Set ``YOLO_FACE_MODEL=yolo26n.pt`` in .env for a faster (smaller) model,
+    or ``YOLO_FACE_MODEL=hf`` to use a HuggingFace face-specific detector.
+    """
 
     def __init__(
         self,
@@ -42,7 +53,7 @@ class HeadTracker:
 
         from reachy_mini_conversation_app.config import config as _cfg
 
-        yolo_id = getattr(_cfg, "YOLO_FACE_MODEL", "yolo26n.pt").strip()
+        yolo_id = getattr(_cfg, "YOLO_FACE_MODEL", "yolo26x.pt").strip()
 
         try:
             if yolo_id.lower() in ("hf", "huggingface"):

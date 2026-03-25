@@ -1,4 +1,13 @@
-"""Local speech recognition with OpenAI Whisper (MIT) for enrollment / verify phrases."""
+"""Local speech recognition with OpenAI Whisper for enrollment and voice intent detection.
+
+Whisper: https://github.com/openai/whisper  (MIT licence)
+Default model: base.en — English-only, fast, ~74M parameters, ~1 GB VRAM.
+Alternatives  : tiny.en (fastest), small.en (better accuracy), turbo (best GPU),
+                medium.en, large (multilingual).
+
+Install: pip install '.[receptionist]'  (openai-whisper + ffmpeg on PATH)
+ffmpeg : https://ffmpeg.org/download.html
+"""
 
 from __future__ import annotations
 import re
