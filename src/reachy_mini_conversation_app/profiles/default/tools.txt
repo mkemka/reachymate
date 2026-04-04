@@ -1,0 +1,8 @@
+move_head
+camera
+dance
+head_tracking
+play_emotion
+stop_dance
+stop_emotion
+do_nothing

@@ -29,7 +29,7 @@ The app follows a layered architecture connecting the user, AI services, and rob
 - Real-time audio conversation loop powered by the OpenAI realtime API and `fastrtc` for low-latency streaming.
 - Vision processing uses gpt-realtime by default (when camera tool is used), with optional local vision processing using SmolVLM2 model running on-device (CPU/GPU/MPS) via `--local-vision` flag.
 - Layered motion system queues primary moves (dances, emotions, goto poses, breathing) while blending speech-reactive wobble and face-tracking.
-- Async tool dispatch integrates robot motion, camera capture, and optional face-tracking capabilities through a Gradio web UI with live transcripts.
+- Async tool dispatch integrates robot motion, camera capture, and optional face-tracking capabilities through a custom dashboard with live camera/chat panels, plus an optional standalone Gradio UI.
 
 ## Installation
 
@@ -52,10 +52,14 @@ cd reachymate
 uv pip install -e .
 
 # 4. Start the Reachy Mini daemon
-reachy-mini
+reachy-mini-daemon --no-localhost-only --log-level INFO
+
+# 5. In a second terminal, launch the custom dashboard
+source .venv/bin/activate
+reachy-convo-dashboard
 ```
 
-Once the daemon is running, open http://127.0.0.1:7860/ to access the settings dashboard. Enter your OpenAI API key on first launch -- it will be saved for subsequent runs.
+Once the daemon is running, confirm the daemon UI is reachable at http://127.0.0.1:8000/ and open http://127.0.0.1:7860/ for the conversation dashboard. Enter your OpenAI API key on first launch if needed -- it will be saved for subsequent runs.
 
 ### Optional extras
 
@@ -94,13 +98,40 @@ uv pip install -e ".[dev]"                   # Dev tools (pytest, ruff, mypy)
 
 ## Running the app
 
-Activate your virtual environment, ensure the Reachy Mini robot (or simulator) is reachable, then launch:
+Start the local daemon first, then choose the app surface you want.
+
+### Recommended: custom dashboard
+
+This is the path for the live camera view, chat log, personality editor, and local control panel:
 
 ```bash
-reachy-mini-conversation-app
+# Terminal 1
+source .venv/bin/activate
+reachy-mini-daemon --no-localhost-only --log-level INFO
+
+# Terminal 2
+source .venv/bin/activate
+reachy-convo-dashboard
+
+# Optional: speech-only dashboard bring-up if camera access is blocked
+# reachy-convo-dashboard --no-camera
 ```
 
-By default, the app runs in console mode for direct audio interaction. Use the `--gradio` flag to launch a web UI served locally at http://127.0.0.1:7860/ (required when running in simulation mode). With a camera attached, vision is handled by the gpt-realtime model when the camera tool is used. For local vision processing, use the `--local-vision` flag to process frames periodically using the SmolVLM2 model. Additionally, you can enable face tracking via YOLO or MediaPipe pipelines depending on the extras you installed.
+The dashboard is served at http://127.0.0.1:7860/. If you prefer not to rely on the generated console script, you can launch the same flow with:
+
+```bash
+python -m reachy_mini_conversation_app.main
+```
+
+### Standalone console / Gradio app
+
+Use the standalone CLI when you want the direct audio loop or the Gradio-only surface:
+
+```bash
+reachy-convo-mate
+```
+
+By default, `reachy-convo-mate` runs in console mode for direct audio interaction. Use the `--gradio` flag when you explicitly want the standalone Gradio surface. With a camera attached, vision is handled by the gpt-realtime model when the camera tool is used. For local vision processing, use the `--local-vision` flag to process frames periodically using the SmolVLM2 model. Additionally, you can enable face tracking via YOLO or MediaPipe pipelines depending on the extras you installed.
 
 ### CLI options
 
@@ -118,25 +149,25 @@ By default, the app runs in console mode for direct audio interaction. Use the `
 - Run on hardware with MediaPipe face tracking:
 
   ```bash
-  reachy-mini-conversation-app --head-tracker mediapipe
+  reachy-convo-mate --head-tracker mediapipe
   ```
 
 - Run with local vision processing (requires `local_vision` extra):
 
   ```bash
-  reachy-mini-conversation-app --local-vision
+  reachy-convo-mate --local-vision
   ```
 
 - Run with wireless support (requires `reachy_mini_wireless` extra and daemon started with `--wireless-version`):
 
   ```bash
-  reachy-mini-conversation-app --wireless-version
+  reachy-convo-mate --wireless-version
   ```
 
 - Disable the camera pipeline (audio-only conversation):
 
   ```bash
-  reachy-mini-conversation-app --no-camera
+  reachy-convo-mate --no-camera
   ```
 
 ### Troubleshooting
@@ -146,7 +177,30 @@ If you get an error like this:
   ```bash
   TimeoutError: Timeout while waiting for connection with the server.
   ```
-It probably means that the Reachy Mini's daemon isn't running. Install [Reachy Mini's SDK](https://github.com/pollen-robotics/reachy_mini/) and start the daemon.
+It usually means the Reachy Mini daemon is not running or not reachable on localhost. Start it first with:
+
+  ```bash
+  reachy-mini-daemon --no-localhost-only --log-level INFO
+  ```
+
+Then confirm http://127.0.0.1:8000/ is reachable before launching `reachy-convo-dashboard` or `reachy-convo-mate`.
+
+If you are not on macOS, `--localhost-only` may still work. On this Mac, `--no-localhost-only` was required because the localhost-only Zenoh listener bound IPv6 loopback while the client attempted IPv4 localhost.
+
+If the daemon dashboard on `:8000` is reachable but the app still times out while connecting to `localhost:7447`, retry the daemon with:
+
+  ```bash
+  reachy-mini-daemon --no-localhost-only --log-level INFO
+  ```
+
+This can be necessary on macOS when the localhost-only Zenoh listener binds IPv6 loopback but the client is attempting IPv4 localhost.
+
+- Camera permission error on macOS:
+If startup logs mention that video capture is not authorized, macOS is blocking camera access for the host app running Python. Grant camera access in System Settings > Privacy & Security > Camera, then relaunch `reachy-convo-dashboard`. If you want to validate realtime speech first, use:
+
+  ```bash
+  reachy-convo-dashboard --no-camera
+  ```
 
 ## LLM tools exposed to the assistant
 
@@ -193,7 +247,7 @@ On top of built-in tools found in the shared library, you can implement custom t
 Custom tools must subclass `reachy_mini_conversation_app.tools.core_tools.Tool` (see `profiles/example/sweep_look.py`).
 
 ### Edit personalities from the UI
-When running with `--gradio`, open the “Personality” accordion:
+When running with `--gradio`, open the “Personality” accordion. When running `reachy-convo-dashboard`, use the built-in “Personality studio” panel:
 - Select among available profiles (folders under `src/reachy_mini_conversation_app/profiles/`) or the built‑in default.
 - Click “Apply” to update the current session instructions live.
 - Create a new personality by entering a name and instructions text; it stores files under `profiles/<name>/` and copies `tools.txt` from the `default` profile.

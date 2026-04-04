@@ -56,7 +56,8 @@ dev = [
 ]
 
 [project.scripts]
-reachy-convo-mate = "reachy_mini_conversation_app.main:main"
+reachy-convo-mate = "reachy_mini_conversation_app.main:standalone_main"
+reachy-convo-dashboard = "reachy_mini_conversation_app.main:dashboard_main"
 
 [project.entry-points."reachy_mini_apps"]
 reachy_convo_mate = "reachy_mini_conversation_app.main:ReachyConvoMate"
